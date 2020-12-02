@@ -40,6 +40,7 @@ namespace llvm {
 
 class AssemblerConstantPools;
 class MCAsmBackend;
+class MCCFIInstruction;
 class MCCodeEmitter;
 class MCContext;
 struct MCDwarfFrameInfo;
@@ -1007,6 +1008,7 @@ public:
   virtual void emitCFIRegister(int64_t Register1, int64_t Register2);
   virtual void emitCFIWindowSave();
   virtual void emitCFINegateRAState();
+  virtual void emitCFIInstruction(const MCCFIInstruction &Inst);
 
   virtual void EmitWinCFIStartProc(const MCSymbol *Symbol, SMLoc Loc = SMLoc());
   virtual void EmitWinCFIEndProc(SMLoc Loc = SMLoc());
@@ -1115,6 +1117,10 @@ public:
                                         const MCSymbol *LastLabel,
                                         const MCSymbol *Label,
                                         unsigned PointerSize) {}
+
+  virtual void emitDwarfAdvanceLineAddrAbs(int64_t LineDelta, uint64_t Address,
+                                           uint64_t AddressDelta,
+                                           unsigned PointerSize) {}
 
   /// Do finalization for the streamer at the end of a section.
   virtual void doFinalizationAtSectionEnd(MCSection *Section) {}
