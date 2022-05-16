@@ -1259,6 +1259,11 @@ public:
     llvm_unreachable("not implemented");
   }
 
+  /// Change \p Regs with a bitmask with all ISA outermost registers.
+  virtual void getISARegs(BitVector &Regs) const {
+    llvm_unreachable("not implemented");
+  }
+
   /// Change \p Regs with a bitmask with all general purpose regs
   virtual void getGPRegs(BitVector &Regs, bool IncludeAlias = true) const {
     llvm_unreachable("not implemented");

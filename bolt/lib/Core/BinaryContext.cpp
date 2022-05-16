@@ -72,6 +72,13 @@ PrintMemData("print-mem-data",
   cl::ZeroOrMore,
   cl::cat(BoltCategory));
 
+static cl::opt<bool>
+PrintDataFlow("print-df",
+  cl::desc("print dataflow information when printing functions"),
+  cl::Hidden,
+  cl::ZeroOrMore,
+  cl::cat(BoltCategory));
+
 } // namespace opts
 
 namespace llvm {
@@ -1864,6 +1871,11 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
   if ((opts::PrintRelocations || PrintRelocations) && Function) {
     const uint64_t Size = computeCodeSize(&Instruction, &Instruction + 1);
     Function->printRelocations(OS, Offset, Size);
+  }
+
+  if (opts::PrintDataFlow && Function && Function->hasDFG()) {
+    OS << " # DF: ";
+    Function->getDFG().dumpInstDF(OS, Instruction, *this);
   }
 
   OS << Endl;

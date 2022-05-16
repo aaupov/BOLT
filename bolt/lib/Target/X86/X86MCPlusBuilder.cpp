@@ -802,6 +802,17 @@ public:
     Regs |= getAliases(X86::XMM1);
   }
 
+  void getISARegs(BitVector &Regs) const override {
+    // Set all registers
+    Regs.set();
+    // Unset smaller aliases of GPRs
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::GR64RegClassID])
+      Regs ^= getAliases(Reg, /* OnlySmaller = */ true);
+    // Unset smaller aliases of vector registers
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::VR512RegClassID])
+      Regs ^= getAliases(Reg, /* OnlySmaller = */ true);
+  }
+
   void getGPRegs(BitVector &Regs, bool IncludeAlias) const override {
     if (IncludeAlias) {
       Regs |= getAliases(X86::RAX);
