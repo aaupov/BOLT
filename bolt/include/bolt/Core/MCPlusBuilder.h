@@ -390,9 +390,14 @@ public:
   /// Check whether we support inverting this branch
   virtual bool isUnsupportedBranch(unsigned Opcode) const { return false; }
 
-  /// Return true of the instruction is of pseudo kind.
+  /// Return true if the instruction is of pseudo kind.
   bool isPseudo(const MCInst &Inst) const {
     return Info->get(Inst.getOpcode()).isPseudo();
+  }
+
+  /// Return true if the instruction has unmodeled side effects.
+  bool hasUnmodeledSideEffects(const MCInst &Inst) const {
+    return Info->get(Inst.getOpcode()).hasUnmodeledSideEffects();
   }
 
   /// Creates x86 pause instruction.
@@ -577,6 +582,15 @@ public:
 
   virtual bool isPacked(const MCInst &Inst) const {
     llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Return true if \p Inst has side-effects and can't be removed even if
+  /// has no dataflow-dependent instructions.
+  virtual bool isAlive(const MCInst &Inst) const {
+    if (isBranch(Inst) || isStore(Inst) || isCall(Inst) || isReturn(Inst) ||
+        hasUnmodeledSideEffects(Inst))
+      return true;
     return false;
   }
 

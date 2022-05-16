@@ -84,6 +84,11 @@ PrintAfterLowering("print-after-lowering",
   cl::desc("print function after instruction lowering"),
   cl::Hidden, cl::cat(BoltOptCategory));
 
+static cl::opt<bool>
+PrintDataflowPeepholes("print-df-peepholes",
+  cl::desc("print functions after dataflow peephole optimizations"),
+  cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
+
 cl::opt<bool>
 PrintFinalized("print-finalized",
   cl::desc("print function after CFG is finalized"),
@@ -240,6 +245,11 @@ static cl::opt<bool> ThreeWayBranchFlag("three-way-branch",
                                         cl::desc("reorder three way branches"),
                                         cl::ReallyHidden,
                                         cl::cat(BoltOptCategory));
+
+static cl::opt<bool>
+DataflowPeepholesFlag("df-peepholes",
+  cl::desc("perform dataflow peephole optimizations"),
+  cl::ZeroOrMore, cl::ReallyHidden, cl::cat(BoltOptCategory));
 
 static cl::opt<bool> CMOVConversionFlag("cmov-conversion",
                                         cl::desc("fold jcc+mov into cmov"),
@@ -398,6 +408,9 @@ void BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
   Manager.registerPass(std::make_unique<LoopInversionPass>());
 
   Manager.registerPass(std::make_unique<TailDuplication>());
+
+  Manager.registerPass(std::make_unique<DataFlowPeepholes>(PrintDataflowPeepholes),
+                       opts::DataflowPeepholesFlag);
 
   Manager.registerPass(std::make_unique<CMOVConversion>(),
                        opts::CMOVConversionFlag);

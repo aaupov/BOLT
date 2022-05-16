@@ -15,6 +15,7 @@
 
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryFunction.h"
+#include "bolt/Core/DataflowGraph.h"
 #include "bolt/Core/DynoStats.h"
 #include "llvm/Support/CommandLine.h"
 #include <atomic>
@@ -99,6 +100,25 @@ public:
       : BinaryFunctionPass(PrintPass) {}
 
   const char *getName() const override { return "normalize CFG"; }
+
+  void runOnFunctions(BinaryContext &) override;
+};
+
+/// The pass performs global (function-scope) Data-Flow optimizations:
+///   * Dead Code Elimination
+///   * Constant/Copy Propagation
+class DataFlowPeepholes : public BinaryFunctionPass {
+  std::atomic<uint64_t> NumInstrsRemoved{0};
+
+  void runOnFunction(BinaryFunction &BF);
+  bool constCopyPropagation(BinaryFunction &BF, MCInst &Inst);
+  bool deadCodeElimination(BinaryFunction &BF, MCInst &Inst);
+
+public:
+  DataFlowPeepholes(const cl::opt<bool> &PrintPass)
+    : BinaryFunctionPass(PrintPass) {}
+
+  const char *getName() const override { return "dataflow peepholes"; }
 
   void runOnFunctions(BinaryContext &) override;
 };
