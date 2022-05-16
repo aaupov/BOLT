@@ -16,6 +16,7 @@ add_llvm_library(LLVMBOLTCore
   BinaryFunction.cpp
   BinaryFunctionProfile.cpp
   BinarySection.cpp
+  DataflowGraph.cpp
   DebugData.cpp
   DynoStats.cpp
   Exceptions.cpp

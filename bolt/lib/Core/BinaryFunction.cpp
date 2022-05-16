@@ -12,7 +12,6 @@
 
 #include "bolt/Core/BinaryFunction.h"
 #include "bolt/Core/BinaryBasicBlock.h"
-#include "bolt/Core/BinaryDomTree.h"
 #include "bolt/Core/DynoStats.h"
 #include "bolt/Core/MCPlusBuilder.h"
 #include "bolt/Utils/NameResolver.h"
@@ -4007,12 +4006,19 @@ BinaryFunction::~BinaryFunction() {
     delete BB;
 }
 
+void BinaryFunction::constructDFG() { DFG.reset(new DataflowGraph(this)); }
+
+void BinaryFunction::constructDomTree() {
+  BDT.reset(new BinaryDominatorTree);
+  BDT->recalculate(*this);
+}
+
 void BinaryFunction::calculateLoopInfo() {
+  if (!hasDomTree())
+    constructDomTree();
   // Discover loops.
-  BinaryDominatorTree DomTree;
-  DomTree.recalculate(*this);
   BLI.reset(new BinaryLoopInfo());
-  BLI->analyze(DomTree);
+  BLI->analyze(getDomTree());
 
   // Traverse discovered loops and add depth and profile information.
   std::stack<BinaryLoop *> St;

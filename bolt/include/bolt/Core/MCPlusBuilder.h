@@ -1192,6 +1192,16 @@ public:
     llvm_unreachable("not implemented");
   }
 
+  /// Returns outermost ISA reg for a given \p Reg.
+  virtual MCPhysReg getOutermostISAReg(MCPhysReg Reg) const {
+    llvm_unreachable("not implemented");
+  }
+
+  /// Change \p Regs with a bitmask with all ISA outermost registers.
+  virtual BitVector getISARegs() const {
+    llvm_unreachable("not implemented");
+  }
+
   /// Change \p Regs with a bitmask with all general purpose regs
   virtual void getGPRegs(BitVector &Regs, bool IncludeAlias = true) const {
     llvm_unreachable("not implemented");

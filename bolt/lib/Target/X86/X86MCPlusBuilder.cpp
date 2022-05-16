@@ -16,6 +16,7 @@
 #include "X86MCSymbolizer.h"
 #include "bolt/Core/MCPlus.h"
 #include "bolt/Core/MCPlusBuilder.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCFixupKindInfo.h"
@@ -810,6 +811,33 @@ public:
     Regs |= getAliases(X86::RCX);
     Regs |= getAliases(X86::XMM0);
     Regs |= getAliases(X86::XMM1);
+  }
+
+  MCPhysReg getOutermostISAReg(MCPhysReg Reg) const override {
+    // Get outermost ISA reg
+    BitVector RegAliases = getAliases(Reg);
+    RegAliases &= getISARegs();
+    assert(RegAliases.count() == 1 && "Unexpected register");
+    return RegAliases.find_first();
+  }
+
+  BitVector getISARegs() const override {
+    // Set all registers
+    BitVector Regs(RegInfo->getNumRegs(), true);
+    // Except $noreg
+    Regs.reset(0);
+    // Unset smaller aliases of GPRs
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::GR64RegClassID]) {
+      Regs ^= getAliases(Reg, /* OnlySmaller = */ true);
+      Regs.set(Reg); // turn on the outermost reg
+    }
+    // Unset smaller aliases of vector registers
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::VR512RegClassID]) {
+      Regs ^= getAliases(Reg, /* OnlySmaller = */ true);
+      Regs.set(Reg); // turn on the outermost reg
+    }
+    // FIXME: how to handle mask pairs?
+    return Regs;
   }
 
   void getGPRegs(BitVector &Regs, bool IncludeAlias) const override {

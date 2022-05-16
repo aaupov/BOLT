@@ -71,6 +71,13 @@ PrintMemData("print-mem-data",
   cl::ZeroOrMore,
   cl::cat(BoltCategory));
 
+static cl::opt<bool>
+PrintDataFlow("print-df",
+  cl::desc("print dataflow information when printing functions"),
+  cl::Hidden,
+  cl::ZeroOrMore,
+  cl::cat(BoltCategory));
+
 } // namespace opts
 
 namespace llvm {
@@ -1841,6 +1848,18 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
     OS << Endl;
     return;
   }
+  if (Instruction.getOpcode() == TargetOpcode::PHI) {
+    MCPhysReg Reg = Instruction.getOperand(0).getReg();
+    OS << "\t!PHI\t";
+    InstPrinter->printRegName(OS, Reg);
+    if (opts::PrintDataFlow && Function) {
+      assert(Function->hasDFG());
+      OS << " # DF: ";
+      Function->getDFG().dumpInstDF(OS, Instruction, *Function);
+    }
+    OS << Endl;
+    return;
+  }
   InstPrinter->printInst(&Instruction, 0, "", *STI, OS);
   if (MIB->isCall(Instruction)) {
     if (MIB->isTailCall(Instruction))
@@ -1876,6 +1895,11 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
   if ((opts::PrintRelocations || PrintRelocations) && Function) {
     const uint64_t Size = computeCodeSize(&Instruction, &Instruction + 1);
     Function->printRelocations(OS, Offset, Size);
+  }
+
+  if (opts::PrintDataFlow && Function && Function->hasDFG()) {
+    OS << " # DF: ";
+    Function->getDFG().dumpInstDF(OS, Instruction, *Function);
   }
 
   OS << Endl;
