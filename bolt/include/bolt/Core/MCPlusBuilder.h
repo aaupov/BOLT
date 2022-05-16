@@ -436,7 +436,7 @@ public:
   /// Check whether we support inverting this branch
   virtual bool isUnsupportedBranch(const MCInst &Inst) const { return false; }
 
-  /// Return true of the instruction is of pseudo kind.
+  /// Return true if the instruction is of pseudo kind.
   bool isPseudo(const MCInst &Inst) const {
     return Info->get(Inst.getOpcode()).isPseudo();
   }
@@ -455,6 +455,11 @@ public:
   virtual bool shouldRecordCodeRelocation(uint64_t RelType) const {
     llvm_unreachable("not implemented");
     return false;
+  }
+
+  /// Return true if the instruction has unmodeled side effects.
+  bool hasUnmodeledSideEffects(const MCInst &Inst) const {
+    return Info->get(Inst.getOpcode()).hasUnmodeledSideEffects();
   }
 
   /// Creates x86 pause instruction.
@@ -636,6 +641,15 @@ public:
   /// Returns true if First/Second is a AUIPC/JALR call pair.
   virtual bool isRISCVCall(const MCInst &First, const MCInst &Second) const {
     llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Return true if \p Inst has side-effects and can't be removed even if
+  /// has no dataflow-dependent instructions.
+  virtual bool isAlive(const MCInst &Inst) const {
+    if (isStore(Inst) || isCall(Inst) || isReturn(Inst) ||
+        hasUnmodeledSideEffects(Inst))
+      return true;
     return false;
   }
 
