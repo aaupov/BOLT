@@ -4413,14 +4413,12 @@ void BinaryFunction::printLoopInfo(raw_ostream &OS) const {
   OS << "\n";
 
   std::stack<BinaryLoop *> St;
-  for (BinaryLoop *L : *BLI)
-    St.push(L);
+  for_each(*BLI, [&](BinaryLoop *L) { St.push(L); });
   while (!St.empty()) {
     BinaryLoop *L = St.top();
     St.pop();
 
-    for (BinaryLoop *Inner : *L)
-      St.push(Inner);
+    for_each(*L, [&](BinaryLoop *Inner) { St.push(Inner); });
 
     if (!hasValidProfile())
       continue;
