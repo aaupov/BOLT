@@ -412,15 +412,6 @@ private:
     return BB->getIndex();
   }
 
-  /// Return basic block that originally contained offset \p Offset
-  /// from the function start.
-  BinaryBasicBlock *getBasicBlockContainingOffset(uint64_t Offset);
-
-  const BinaryBasicBlock *getBasicBlockContainingOffset(uint64_t Offset) const {
-    return const_cast<BinaryFunction *>(this)->getBasicBlockContainingOffset(
-        Offset);
-  }
-
   /// Return basic block that started at offset \p Offset.
   BinaryBasicBlock *getBasicBlockAtOffset(uint64_t Offset) {
     BinaryBasicBlock *BB = getBasicBlockContainingOffset(Offset);
@@ -919,6 +910,15 @@ public:
     if (Instructions.empty())
       return 0;
     return Instructions.begin()->first;
+  }
+
+  /// Return basic block that originally contained offset \p Offset
+  /// from the function start.
+  BinaryBasicBlock *getBasicBlockContainingOffset(uint64_t Offset);
+
+  const BinaryBasicBlock *getBasicBlockContainingOffset(uint64_t Offset) const {
+    return const_cast<BinaryFunction *>(this)->getBasicBlockContainingOffset(
+        Offset);
   }
 
   /// Return jump table that covers a given \p Address in memory.
