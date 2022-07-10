@@ -2413,27 +2413,6 @@ public:
     return true;
   }
 
-  bool createSaveToStack(MCInst &Inst, const MCPhysReg &StackReg, int Offset,
-                         const MCPhysReg &SrcReg, int Size) const override {
-    unsigned NewOpcode;
-    switch (Size) {
-    default:
-      return false;
-    case 2:      NewOpcode = X86::MOV16mr; break;
-    case 4:      NewOpcode = X86::MOV32mr; break;
-    case 8:      NewOpcode = X86::MOV64mr; break;
-    }
-    Inst.setOpcode(NewOpcode);
-    Inst.clear();
-    Inst.addOperand(MCOperand::createReg(StackReg));        // BaseReg
-    Inst.addOperand(MCOperand::createImm(1));               // ScaleAmt
-    Inst.addOperand(MCOperand::createReg(X86::NoRegister)); // IndexReg
-    Inst.addOperand(MCOperand::createImm(Offset));          // Displacement
-    Inst.addOperand(MCOperand::createReg(X86::NoRegister)); // AddrSegmentReg
-    Inst.addOperand(MCOperand::createReg(SrcReg));
-    return true;
-  }
-
   bool createRestoreFromStack(MCInst &Inst, const MCPhysReg &StackReg,
                               int Offset, const MCPhysReg &DstReg,
                               int Size) const override {
@@ -2442,21 +2421,30 @@ public:
                       DstReg, Size);
   }
 
-  bool createLoad(MCInst &Inst, const MCPhysReg &BaseReg, int64_t Scale,
-                  const MCPhysReg &IndexReg, int64_t Offset,
-                  const MCExpr *OffsetExpr, const MCPhysReg &AddrSegmentReg,
-                  const MCPhysReg &DstReg, int Size) const override {
+  static bool createLoadOrStore(MCInst &Inst, bool IsLoad,
+                                const MCPhysReg &BaseReg, int64_t Scale,
+                                const MCPhysReg &IndexReg, int64_t Offset,
+                                const MCExpr *OffsetExpr,
+                                const MCPhysReg &AddrSegmentReg,
+                                const MCPhysReg &Reg, int Size) {
     unsigned NewOpcode;
     switch (Size) {
     default:
       return false;
-    case 2:      NewOpcode = X86::MOV16rm; break;
-    case 4:      NewOpcode = X86::MOV32rm; break;
-    case 8:      NewOpcode = X86::MOV64rm; break;
+    case 2:
+      NewOpcode = IsLoad ? X86::MOV16rm : X86::MOV16mr;
+      break;
+    case 4:
+      NewOpcode = IsLoad ? X86::MOV32rm : X86::MOV32mr;
+      break;
+    case 8:
+      NewOpcode = IsLoad ? X86::MOV64rm : X86::MOV64mr;
+      break;
     }
     Inst.setOpcode(NewOpcode);
     Inst.clear();
-    Inst.addOperand(MCOperand::createReg(DstReg));
+    if (IsLoad)
+      Inst.addOperand(MCOperand::createReg(Reg));
     Inst.addOperand(MCOperand::createReg(BaseReg));
     Inst.addOperand(MCOperand::createImm(Scale));
     Inst.addOperand(MCOperand::createReg(IndexReg));
@@ -2465,7 +2453,32 @@ public:
     else
       Inst.addOperand(MCOperand::createImm(Offset)); // Displacement
     Inst.addOperand(MCOperand::createReg(AddrSegmentReg)); // AddrSegmentReg
+    if (!IsLoad)
+      Inst.addOperand(MCOperand::createReg(Reg));
     return true;
+  }
+
+  static bool createStore(MCInst &Inst, const MCPhysReg &BaseReg, int64_t Scale,
+                          const MCPhysReg &IndexReg, int64_t Offset,
+                          const MCExpr *OffsetExpr,
+                          const MCPhysReg &AddrSegmentReg,
+                          const MCPhysReg &SrcReg, int Size) {
+    return createLoadOrStore(Inst, /* IsLoad */ false, BaseReg, Scale, IndexReg,
+                             Offset, OffsetExpr, AddrSegmentReg, SrcReg, Size);
+  };
+
+  bool createSaveToStack(MCInst &Inst, const MCPhysReg &StackReg, int Offset,
+                         const MCPhysReg &SrcReg, int Size) const override {
+    return createStore(Inst, StackReg, 1, X86::NoRegister, Offset, nullptr,
+                       X86::NoRegister, SrcReg, Size);
+  }
+
+  bool createLoad(MCInst &Inst, const MCPhysReg &BaseReg, int64_t Scale,
+                  const MCPhysReg &IndexReg, int64_t Offset,
+                  const MCExpr *OffsetExpr, const MCPhysReg &AddrSegmentReg,
+                  const MCPhysReg &DstReg, int Size) const override {
+    return createLoadOrStore(Inst, /* IsLoad */ true, BaseReg, Scale, IndexReg,
+                             Offset, OffsetExpr, AddrSegmentReg, DstReg, Size);
   }
 
   void createLoadImmediate(MCInst &Inst, const MCPhysReg Dest,
