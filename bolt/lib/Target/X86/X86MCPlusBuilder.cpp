@@ -341,6 +341,8 @@ public:
     case X86::LOOPNE:
     case X86::JECXZ:
     case X86::JRCXZ:
+    case X86::XBEGIN_2:
+    case X86::XBEGIN_4:
       return true;
     }
   }
@@ -2949,6 +2951,212 @@ public:
     Inst.clear();
     Inst.setOpcode(X86::TRAP);
     return true;
+  }
+
+  bool createXAbort(MCInst &Inst, unsigned Imm) const override {
+    Inst.clear();
+    Inst.setOpcode(X86::XABORT);
+    Inst.addOperand(MCOperand::createImm(Imm));
+    return true;
+  }
+
+  bool createXEnd(MCInst &Inst) const override {
+    Inst.clear();
+    Inst.setOpcode(X86::XEND);
+    return true;
+  }
+
+  bool createXBegin(MCInst &Inst, const MCSymbol *Target,
+                    MCContext *Ctx) const override {
+    Inst.clear();
+    Inst.setOpcode(X86::XBEGIN_4);
+    Inst.addOperand(MCOperand::createExpr(
+        MCSymbolRefExpr::create(Target, MCSymbolRefExpr::VK_None, *Ctx)));
+    return true;
+  }
+
+  bool isXAbort(const MCInst &Inst) const override {
+    return X86::isXABORT(Inst.getOpcode());
+  }
+  bool isXBegin(const MCInst &Inst) const override {
+    return X86::isXBEGIN(Inst.getOpcode());
+  }
+  bool isXEnd(const MCInst &Inst) const override {
+    return X86::isXEND(Inst.getOpcode());
+  }
+
+  bool createTLSMove(MCInst &Inst, const MCSymbol *Symbol, bool ToReg,
+                     MCContext &Ctx) const override {
+    // Save RAX
+    MCPhysReg Reg = X86::RAX;
+    // TPOFF: the offset from the thread's userspace thread structure to the
+    // per-thread symbol value.
+    auto *SymbolExpr =
+        MCSymbolRefExpr::create(Symbol, MCSymbolRefExpr::VK_TPOFF, Ctx);
+    if (ToReg)
+      return createLoad(Inst, X86::NoRegister, 1, X86::NoRegister, 0,
+                        SymbolExpr, X86::FS, Reg, 8);
+    // !ToReg
+    return createStore(Inst, X86::NoRegister, 1, X86::NoRegister, 0, SymbolExpr,
+                       X86::FS, Reg, 8);
+  }
+
+  static bool isX87Reg(unsigned Reg) {
+    return (Reg == X86::FPCW || Reg == X86::FPSW ||
+            (Reg >= X86::ST0 && Reg <= X86::ST7));
+  }
+
+  static bool isMMXReg(unsigned Reg) {
+    return (Reg >= X86::MM0 && Reg <= X86::MM7);
+  }
+
+  static bool isDRReg(unsigned Reg) {
+    return (Reg >= X86::DR0 && Reg <= X86::DR15);
+  }
+
+  static bool isX87MMXInstruction(const MCInst &Inst) {
+    for (const MCOperand &Op : Inst) {
+      if (!Op.isReg())
+        continue;
+      unsigned Reg = Op.getReg();
+      if (isX87Reg(Reg) || isMMXReg(Reg))
+        return true;
+    }
+    return false;
+  }
+
+  bool isTSXAbort(const MCInst &Inst) const override {
+    using namespace X86;
+    unsigned Opcode = Inst.getOpcode();
+    switch (Opcode) {
+      /* Intel® Architecture Instruction Set Extensions Programming Reference,
+       * CHAPTER 8, INTEL® TRANSACTIONAL SYNCHRONIZATION EXTENSIONS
+       * 8.3.8.1 Instruction Based Considerations
+       * The following instructions will abort transactional execution on any
+       * implementation */
+      case XABORT:
+      case CPUID:
+      case PAUSE:
+        return true;
+      // Update to non-status portion of EFLAGS
+      case CLI:
+      case STI:
+      case CLTS:
+        return true;
+      case LGDT16m:
+      case LGDT32m:
+      case LGDT64m:
+      case SGDT16m:
+      case SGDT32m:
+      case SGDT64m:
+      case LIDT16m:
+      case LIDT32m:
+      case LIDT64m:
+      case SIDT16m:
+      case SIDT32m:
+      case SIDT64m:
+        return true;
+      // IRET
+      case IRET16:
+      case IRET32:
+      case IRET64:
+        return true;
+      // Ring transition
+      case SYSENTER:
+      case SYSCALL:
+      case SYSEXIT:
+      case SYSRET:
+      case SYSRET64:
+        return true;
+      // TLB and Cacheability control
+      case CLFLUSH:
+      case CLFLUSHOPT:
+        return true;
+      case INVD:
+      case WBINVD:
+        return true;
+      // Memory instructions with a non-temporal hint
+      case MOVNTDQArm:
+      case MOVNTDQmr:
+      case MOVNTPDmr:
+      case MOVNTPSmr:
+      case MMX_MOVNTQmr:
+        return true;
+      // Processor state save
+      case XSAVE:
+      case XSAVE64:
+      case XSAVEC:
+      case XSAVEC64:
+      case XSAVES:
+      case XSAVES64:
+      case XSAVEOPT:
+      case XSAVEOPT64:
+      case XRSTOR:
+      case XRSTOR64:
+      case XRSTORS:
+      case XRSTORS64:
+        return true;
+      // Interrupts: INTn, INTO
+      case INT:
+      case INT3:
+      case INTO:
+        return true;
+    }
+    // Update to non-status portion of EFLAGS
+    if (isPOPFD(Opcode) || isPOPFQ(Opcode))
+      return true;
+    // Instructions that update segment registers, debug registers and/or
+    // control registers
+    if (isLDS(Opcode) || isLES(Opcode) || isLFS(Opcode) || isLGS(Opcode) ||
+        isLSS(Opcode))
+      return true;
+    if (isSWAPGS(Opcode) || isWRFSBASE(Opcode) || isWRGSBASE(Opcode) ||
+        isLLDT(Opcode) || isSLDT(Opcode) || isLTR(Opcode) || isSTR(Opcode))
+      return true;
+    // Far CALL, Far JMP, Far RET
+    if (isLJMP(Opcode) || isLCALL(Opcode) || Opcode == FARCALL32m ||
+        Opcode == FARJMP32m || isRETF(Opcode) || isRETFQ(Opcode))
+      return true;
+    // LMSW
+    if (isLMSW(Opcode))
+      return true;
+    // TLB and Cacheability control
+    if (isINVLPG(Opcode) || isINVLPGA(Opcode) || isINVLPGB(Opcode) ||
+        isINVPCID(Opcode))
+      return true;
+    // Memory instructions with a non-temporal hint
+    if (isMOVNTI(Opcode))
+      return true;
+
+    for (const MCOperand &Op : Inst) {
+      if (!Op.isReg())
+        continue;
+      unsigned Reg = Op.getReg();
+      // Operations on X87 and MMX architecture state.
+      if (isX87Reg(Reg) || isMMXReg(Reg))
+        return true;
+      // MOV to DRx,
+      if (isDRReg(Reg))
+        return true;
+      // Instructions that update segment registers, debug registers and/or
+      // control registers: MOV and to DS/ES/FS/GS/SS, POP DS/ES/FS/GS/SS
+      switch (Reg) {
+      case DS:
+      case ES:
+      case FS:
+      case GS:
+      case SS:
+        return true;
+      // MOV to CR0/CR2/CR3/CR4/CR8
+      case CR0:
+      case CR2:
+      case CR3:
+      case CR4:
+      case CR8:
+        return true;
+      }
+    }
+    return false;
   }
 
   bool reverseBranchCondition(MCInst &Inst, const MCSymbol *TBB,

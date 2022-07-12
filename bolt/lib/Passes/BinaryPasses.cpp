@@ -12,6 +12,7 @@
 
 #include "bolt/Passes/BinaryPasses.h"
 #include "bolt/Core/FunctionLayout.h"
+#include "bolt/Core/BinaryBasicBlock.h"
 #include "bolt/Core/ParallelUtilities.h"
 #include "bolt/Passes/ReorderAlgorithm.h"
 #include "bolt/Passes/ReorderFunctions.h"
@@ -317,6 +318,197 @@ void NormalizeCFG::runOnFunctions(BinaryContext &BC) {
     outs() << "BOLT-INFO: merged " << NumDuplicateEdgesMerged
            << " duplicate CFG edge" << (NumDuplicateEdgesMerged == 1 ? "" : "s")
            << '\n';
+}
+
+void AtomicRegions::ResourceUsage::calculate(const BinaryBasicBlock &BB) {
+  const BinaryContext &BC = BB.getFunction()->getBinaryContext();
+  for (const MCInst &Inst : BB) {
+    if (BC.MIB->isTSXAbort(Inst)) {
+      HasTSXAbort = true;
+      return;
+    }
+    Ld += BC.MIB->isLoad(Inst);
+    St += BC.MIB->isStore(Inst);
+    Op += !BC.MIB->isPseudo(Inst);
+  }
+}
+
+void AtomicRegions::runOnFunction(BinaryFunction &BF) {
+  BinaryContext &BC = BF.getBinaryContext();
+  if (!BC.isX86())
+    return;
+
+  // Calculate loop info
+  if (!BF.hasLoopInfo())
+    BF.calculateLoopInfo();
+
+  auto &BLI = BF.getLoopInfo();
+
+  // New blocks will be added and layout will change,
+  // so make a copy here to iterate over the original layout
+  BinaryFunction::BasicBlockOrderType BlockLayout(
+      BF.getLayout().block_begin(), BF.getLayout().block_end());
+  std::vector<std::unique_ptr<BinaryBasicBlock>> DuplicatedBlocks;
+  DenseMap<const BinaryBasicBlock *, BinaryBasicBlock *> OldToNewMap;
+  DenseMap<const BinaryBasicBlock *, BinaryBasicBlock *> NewToOldMap;
+
+  bool HasCold = false;
+  // Duplicate hot path, the rest of the code becomes cold.
+  for (BinaryBasicBlock *BB : BlockLayout) {
+    // FIXME: hot code heuristic needs to be in sync with function splitting.
+    if (!BB->hasProfile()) {
+      HasCold = true;
+      continue;
+    }
+    DuplicatedBlocks.emplace_back(
+        BF.createBasicBlock((BC.Ctx)->createNamedTempSymbol("BB")));
+    BinaryBasicBlock *NewBB = DuplicatedBlocks.back().get();
+    OldToNewMap.insert({BB, NewBB});
+    NewToOldMap.insert({NewBB, BB});
+    // Copy instructions
+    BinaryBasicBlock::iterator InsertII = NewBB->begin();
+    // FIXME: copy annotations?
+    // By default, the annotation operand points to the old annotation
+    // instruction. If we needed to change any annotation on the copied
+    // instruction, we'd need to duplicate annotation instruction itself.
+    for (MCInst Inst : *BB)
+      InsertII = std::next(NewBB->insertInstruction(InsertII, std::move(Inst)));
+    // Set exec count
+    NewBB->setExecutionCount(BB->getExecutionCount());
+    BB->setExecutionCount(0);
+    // Copy CFI
+    NewBB->setCFIState(BB->getCFIState());
+  }
+
+  BinaryBasicBlock *AbortBB = nullptr;
+  if (HasCold) {
+    // Construct xabort BB/inst
+    DuplicatedBlocks.emplace_back(
+        BF.createBasicBlock((BC.Ctx)->createNamedTempSymbol("xabort")));
+    AbortBB = DuplicatedBlocks.back().get();
+    MCInst AbortInst;
+    BC.MIB->createXAbort(AbortInst);
+    AbortBB->insertInstruction(AbortBB->begin(), AbortInst);
+    AbortBB->setCFIState(0);
+  }
+
+  // Redirect edges: cold edges to xabort, hot edges to clones.
+  for (auto &OldNewPair : OldToNewMap) {
+    const BinaryBasicBlock *OldBB = OldNewPair.first;
+    BinaryBasicBlock *NewBB = OldNewPair.second;
+    assert(NewBB);
+    for (BinaryBasicBlock *OldSucc : OldBB->successors()) {
+      if (!OldSucc->hasProfile()) {
+        assert(AbortBB);
+        NewBB->addSuccessor(AbortBB);
+      } else {
+        BinaryBasicBlock *NewSucc = OldToNewMap[OldSucc];
+        assert(NewSucc);
+        const BinaryBasicBlock::BinaryBranchInfo &BI =
+            OldBB->getBranchInfo(*OldSucc);
+        NewBB->addSuccessor(NewSucc, BI);
+      }
+    }
+  }
+  BF.insertBasicBlocks(nullptr, std::move(DuplicatedBlocks), true, false, true);
+
+  // Allocate TLS for RAX spill/fill
+  MCSymbol *SpillLoc = BC.getOrCreateUndefinedGlobalSymbol("bolt.rax.spill");
+  /*
+   * FIXME: emit this symbol in .tbss section in emitter
+  auto *TbssSection = BC.Ctx->getELFSection(".tbss", ELF::SHT_NOBITS,
+                                            ELF::SHF_TLS);
+  TbssSection->addPendingLabel(SpillLoc);
+  */
+  // Naive xbegin placement
+  auto InsertXBegin = [&](BinaryBasicBlock &InsertBB,
+                          BinaryBasicBlock &RollbackBB) {
+    // Save RAX to TLS
+    MCInst TLSSaveRAX;
+    BC.MIB->createTLSMove(TLSSaveRAX, SpillLoc, /*ToReg =*/false, *BC.Ctx);
+    auto InsertIt = InsertBB.insertInstruction(InsertBB.begin(), TLSSaveRAX);
+    // xbegin with rollback ptr to original code
+    MCInst XBegin;
+    BC.MIB->createXBegin(XBegin, RollbackBB.getLabel(), BC.Ctx.get());
+    InsertIt = InsertBB.insertInstruction(std::next(InsertIt), XBegin);
+    BinaryBasicBlock *SplitBB = InsertBB.splitAt(std::next(InsertIt));
+    InsertBB.addSuccessor(&RollbackBB, 0, 0);
+    SplitBB->setExecutionCount(InsertBB.getExecutionCount());
+    InsertBB.swapConditionalSuccessors();
+    // Restore RAX from TLS
+    MCInst TLSRestoreRAX;
+    BC.MIB->createTLSMove(TLSRestoreRAX, SpillLoc, /*ToReg=*/true, *BC.Ctx);
+    RollbackBB.insertInstruction(RollbackBB.begin(), TLSRestoreRAX);
+  };
+  auto InsertXEnd = [&](BinaryBasicBlock &BB) {
+    MCInst XEnd;
+    BC.MIB->createXEnd(XEnd);
+    BB.insertInstruction(BB.begin(), XEnd);
+  };
+  // 1. at entry point(s),
+  BinaryBasicBlock &FirstNew = BF.front();
+  BinaryBasicBlock *FirstOld = NewToOldMap[&FirstNew];
+  InsertXBegin(FirstNew, *FirstOld);
+  // 2. loop heads
+  for (auto &LI : BLI) {
+    BinaryBasicBlock *LoopHeadOld = LI->getHeader();
+    if (OldToNewMap.find(LoopHeadOld) == OldToNewMap.end())
+      continue;
+    BinaryBasicBlock *LoopHeadNew = OldToNewMap[LoopHeadOld];
+    InsertXBegin(*LoopHeadNew, *LoopHeadOld);
+    InsertXEnd(*LoopHeadNew);
+  }
+  // 3. by constraint propagation.
+  std::map<const BinaryBasicBlock *, ResourceUsage> ResourceBBMap;
+  for (const BinaryBasicBlock *BB : llvm::make_first_range(NewToOldMap)) {
+    // Calculate ops in BB
+    ResourceUsage RU;
+    RU.calculate(*BB);
+    ResourceBBMap.insert({BB, RU});
+  }
+  for (BinaryBasicBlock *BB : post_order(&BF)) {
+    // Skip cold blocks
+    if (!BB->hasProfile())
+      continue;
+    // Skip blocks with xbegin/xend (entry/loop head)
+    const MCInst &Inst = BB->front();
+    if (BC.MIB->isXBegin(Inst) || BC.MIB->isXEnd(Inst))
+      continue;
+    BinaryBasicBlock *OldBB = NewToOldMap[BB];
+    // Collect the incoming max
+    struct ResourceUsage InUsage;
+    for (BinaryBasicBlock *Pred : BB->predecessors()) {
+      // If the ResourceUsage is not recorded, it must be a backedge block
+      if (ResourceBBMap.find(Pred) == ResourceBBMap.end())
+        continue;
+      struct ResourceUsage RI = ResourceBBMap[Pred];
+      InUsage.max(RI);
+    }
+    // Calculate ops in BB
+    struct ResourceUsage BBUsage;
+    BBUsage.calculate(*BB);
+    // Check if BB needs an XEND.
+    // FIXME: insert precise xbegin/xend. For now, check if BB fits or not.
+    InUsage.add(BBUsage);
+    if (InUsage.aborts()) {
+      InsertXBegin(*BB, *OldBB);
+      InsertXEnd(*BB);
+      // If BB exceeds limits, store its own counters only.
+      ResourceBBMap[BB] = BBUsage;
+    } else {
+      // If BB stays within the limit, store its own counters plus the incoming
+      // max.
+      ResourceBBMap[BB] = InUsage;
+    }
+  }
+}
+
+void AtomicRegions::runOnFunctions(BinaryContext &BC) {
+  ParallelUtilities::runOnEachFunction(
+      BC, ParallelUtilities::SchedulingPolicy::SP_BB_LINEAR,
+      [&](BinaryFunction &BF) { runOnFunction(BF); },
+      [&](const BinaryFunction &BF) { return !shouldOptimize(BF); },
+      "AtomicRegions");
 }
 
 void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {

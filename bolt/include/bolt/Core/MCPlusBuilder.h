@@ -1500,6 +1500,52 @@ public:
     return false;
   }
 
+  /// Creates XEND instruction. Returns true on success.
+  virtual bool createXEnd(MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Creates XABORT instruction. Returns true on success.
+  virtual bool createXAbort(MCInst &Inst, unsigned Imm = 0) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Creates XBEGIN instruction, with rollback pointer set to \p Target.
+  /// Returns true on success.
+  virtual bool createXBegin(MCInst &Inst, const MCSymbol *Target,
+                            MCContext *Ctx) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  virtual bool isXAbort(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+  virtual bool isXBegin(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+  virtual bool isXEnd(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Creates a move instruction to/from TLS \p Symbol into a \p Reg.
+  virtual bool createTLSMove(MCInst &Inst, const MCSymbol *Symbol, bool ToReg,
+                             MCContext &Ctx) const {
+    llvm_unreachable("not implemented");
+    return false;
+  }
+
+  /// Returns whether \p Inst is a TSX abort.
+  virtual bool isTSXAbort(const MCInst &Inst) const {
+    llvm_unreachable("not implemented");
+    return true;
+  }
+
   /// Creates an instruction to bump the stack pointer just like a call.
   virtual bool createStackPointerIncrement(MCInst &Inst, int Size = 8,
                                            bool NoFlagsClobber = false) const {

@@ -103,6 +103,42 @@ public:
   void runOnFunctions(BinaryContext &) override;
 };
 
+/// The pass constructs atomic regions and prepares the CFG for transactional
+/// execution.
+class AtomicRegions : public BinaryFunctionPass {
+  void runOnFunction(BinaryFunction &BF);
+
+  // Limit atomic regions by atomic resources
+  struct ResourceUsage {
+    bool HasTSXAbort = false;
+    unsigned Op = 0;
+    unsigned Ld = 0;
+    unsigned St = 0;
+    void max(const struct ResourceUsage &O) {
+      Op = std::max(Op, O.Op);
+      Ld = std::max(Ld, O.Ld);
+      St = std::max(St, O.St);
+    }
+    void add(const struct ResourceUsage &O) {
+      Op += O.Op;
+      Ld += O.Ld;
+      St += O.St;
+    }
+    bool aborts() const {
+      // TSX provides no guidelines or guarantees, but we need to draw the line
+      // somewhere.
+      return HasTSXAbort || Op > 128 || Ld > 64 || St > 32;
+    }
+
+    void calculate(const BinaryBasicBlock &BB);
+  };
+
+public:
+  AtomicRegions() : BinaryFunctionPass(true) {}
+  const char *getName() const override { return "atomic regions"; }
+  void runOnFunctions(BinaryContext &) override;
+};
+
 /// Detect and eliminate unreachable basic blocks. We could have those
 /// filled with nops and they are used for alignment.
 class EliminateUnreachableBlocks : public BinaryFunctionPass {

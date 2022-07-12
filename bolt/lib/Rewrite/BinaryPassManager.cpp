@@ -62,6 +62,11 @@ static cl::opt<bool>
                          cl::desc("eliminate unreachable code"), cl::init(true),
                          cl::cat(BoltOptCategory));
 
+static cl::opt<bool>
+    AtomicRegions("atomic-regions",
+                  cl::desc("transactional regions using Intel TSX"),
+                  cl::cat(BoltOptCategory));
+
 cl::opt<bool> ICF("icf", cl::desc("fold functions with identical code"),
                   cl::cat(BoltOptCategory));
 
@@ -392,6 +397,9 @@ void BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
 
   Manager.registerPass(std::make_unique<EliminateUnreachableBlocks>(PrintUCE),
                        opts::EliminateUnreachable);
+
+  // Transactional execution preparation.
+  Manager.registerPass(std::make_unique<AtomicRegions>(), opts::AtomicRegions);
 
   Manager.registerPass(std::make_unique<SplitFunctions>(PrintSplit));
 
