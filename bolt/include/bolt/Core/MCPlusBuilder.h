@@ -1118,6 +1118,15 @@ public:
   /// Remove offset annotation.
   bool clearOffset(MCInst &Inst);
 
+  /// Return id of \p Inst in the function, if available.
+  Optional<uint32_t> getId(const MCInst &Inst) const;
+
+  /// Set id of \p Inst in the function.
+  bool setId(MCInst &Inst, uint32_t Id, AllocatorIdTy AllocatorId = 0);
+
+  /// Remove id annotation.
+  bool clearId(MCInst &Inst);
+
   /// Return MCSymbol that represents a target of this instruction at a given
   /// operand number \p OpNum. If there's no symbol associated with
   /// the operand - return nullptr.
@@ -1457,6 +1466,10 @@ public:
     llvm_unreachable("not implemented");
     return 0;
   }
+
+  /// Create PHI pseudo instruction for a given \p Reg with \p NumPreds source
+  /// operands.
+  bool createPhi(MCInst &Inst, MCPhysReg Reg, size_t NumPreds) const;
 
   /// Create a no-op instruction.
   virtual bool createNoop(MCInst &Inst) const {

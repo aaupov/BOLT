@@ -17,7 +17,9 @@
 #include "bolt/Utils/NameResolver.h"
 #include "bolt/Utils/Utils.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
+#include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/DebugInfo/DWARF/DWARFFormValue.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnit.h"
 #include "llvm/MC/MCAsmLayout.h"
@@ -1848,15 +1850,17 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
     OS << Endl;
     return;
   }
+  if (Instruction.getOpcode() == TargetOpcode::IMPLICIT_DEF) {
+    OS << "\t!IMPLICIT_DEF\t";
+    MIB->printAnnotations(Instruction, OS);
+    OS << Endl;
+    return;
+  }
   if (Instruction.getOpcode() == TargetOpcode::PHI) {
     MCPhysReg Reg = Instruction.getOperand(0).getReg();
     OS << "\t!PHI\t";
     InstPrinter->printRegName(OS, Reg);
-    if (opts::PrintDataFlow && Function) {
-      assert(Function->hasDFG());
-      OS << " # DF: ";
-      Function->getDFG().dumpInstDF(OS, Instruction, *Function);
-    }
+    MIB->printAnnotations(Instruction, OS);
     OS << Endl;
     return;
   }
@@ -1895,11 +1899,6 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
   if ((opts::PrintRelocations || PrintRelocations) && Function) {
     const uint64_t Size = computeCodeSize(&Instruction, &Instruction + 1);
     Function->printRelocations(OS, Offset, Size);
-  }
-
-  if (opts::PrintDataFlow && Function && Function->hasDFG()) {
-    OS << " # DF: ";
-    Function->getDFG().dumpInstDF(OS, Instruction, *Function);
   }
 
   OS << Endl;

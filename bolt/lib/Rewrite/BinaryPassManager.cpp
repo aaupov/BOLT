@@ -85,6 +85,11 @@ PrintAfterLowering("print-after-lowering",
   cl::Hidden, cl::cat(BoltOptCategory));
 
 static cl::opt<bool>
+PrintDataflowPass("print-df-pass",
+  cl::desc("print functions after dataflow graph construction"),
+  cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
+
+static cl::opt<bool>
 PrintDataflowPeepholes("print-df-peepholes",
   cl::desc("print functions after dataflow peephole optimizations"),
   cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
@@ -245,6 +250,11 @@ static cl::opt<bool> ThreeWayBranchFlag("three-way-branch",
                                         cl::desc("reorder three way branches"),
                                         cl::ReallyHidden,
                                         cl::cat(BoltOptCategory));
+
+static cl::opt<bool>
+DataflowPassFlag("dfg",
+  cl::desc("perform dataflow graph construction"),
+  cl::ZeroOrMore, cl::ReallyHidden, cl::cat(BoltOptCategory));
 
 static cl::opt<bool>
 DataflowPeepholesFlag("df-peepholes",
@@ -408,6 +418,9 @@ void BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
   Manager.registerPass(std::make_unique<LoopInversionPass>());
 
   Manager.registerPass(std::make_unique<TailDuplication>());
+
+  Manager.registerPass(std::make_unique<DataFlowPass>(PrintDataflowPass),
+                       opts::DataflowPassFlag);
 
   Manager.registerPass(std::make_unique<DataFlowPeepholes>(PrintDataflowPeepholes),
                        opts::DataflowPeepholesFlag);

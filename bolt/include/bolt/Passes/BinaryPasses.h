@@ -104,6 +104,17 @@ public:
   void runOnFunctions(BinaryContext &) override;
 };
 
+class DataFlowPass : public BinaryFunctionPass {
+  void runOnFunction(BinaryFunction &BF);
+public:
+  DataFlowPass(const cl::opt<bool> &PrintPass)
+      : BinaryFunctionPass(PrintPass) {}
+
+  const char *getName() const override { return "dataflow-construction"; }
+
+  void runOnFunctions(BinaryContext &) override;
+};
+
 /// The pass performs global (function-scope) Data-Flow optimizations:
 ///   * Dead Code Elimination
 ///   * Constant/Copy Propagation
@@ -112,7 +123,8 @@ class DataFlowPeepholes : public BinaryFunctionPass {
 
   void runOnFunction(BinaryFunction &BF);
   bool constCopyPropagation(BinaryFunction &BF, MCInst &Inst);
-  bool deadCodeElimination(BinaryFunction &BF, MCInst &Inst);
+  bool deadCodeElimination(BinaryBasicBlock *BB,
+                           BinaryBasicBlock::iterator It);
 
 public:
   DataFlowPeepholes(const cl::opt<bool> &PrintPass)

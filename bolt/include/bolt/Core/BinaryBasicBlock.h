@@ -502,6 +502,11 @@ public:
     return Instructions.insert(Pos, Instr);
   }
 
+  template <typename Itr> Itr insertPseudoInstr(Itr Pos, MCInst &&Instr) {
+    ++NumPseudos;
+    return Instructions.emplace(Pos, std::move(Instr));
+  }
+
   /// Return the number of pseudo instructions in the basic block.
   uint32_t getNumPseudos() const;
 

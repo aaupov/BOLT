@@ -66,6 +66,7 @@ public:
     kTailCall,            /// Tail call.
     kConditionalTailCall, /// CTC.
     kOffset,              /// Offset in the function.
+    kId,                  /// Sequential id of instruction in the function.
     kGeneric              /// First generic annotation.
   };
 
