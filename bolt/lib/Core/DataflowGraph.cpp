@@ -14,12 +14,16 @@
 #include "bolt/Core/BinaryBasicBlock.h"
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryFunction.h"
+#include "bolt/Core/MCPlus.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/MC/MCInstPrinter.h"
+#include "llvm/MC/MCRegister.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <unordered_map>
 
 namespace llvm {
 namespace bolt {
@@ -51,26 +55,30 @@ static void phiPlacement(BinaryFunction &BF, ForwardBinaryBBIDFCalculator &IDF,
   constructPhis(BF.getBinaryContext(), IDF, DefBlocks, Reg);
 }
 
-static bool isExternal(const MCInst &Inst) {
-  return Inst.getOpcode() == TargetOpcode::IMPLICIT_DEF;
+static bool isExternal(const MCInst *Inst) {
+  return Inst->getOpcode() == TargetOpcode::IMPLICIT_DEF;
 }
 
 using RegToDefMap = MapVector<MCPhysReg, Access>;
 using BBToRegToDefMap = std::unordered_map<BinaryBasicBlock *, RegToDefMap>;
 
-std::pair<BinaryBasicBlock *, unsigned> getBBIdx(const Access &Acc) {
-  return {Acc.InstRef.BBIdx.BB, Acc.InstRef.BBIdx.InstIdx};
-}
-
 raw_ostream &operator<<(raw_ostream &OS, const Access Acc) {
-  const MCInst &Inst = Acc.getInst();
+  const MCInst *Inst = *Acc;
   if (isExternal(Inst)) {
     OS << 'e';
     return OS;
   }
-  std::pair<BinaryBasicBlock *, unsigned> BBIdx = getBBIdx(Acc);
+  InstRef IR = Acc.IR;
+  assert(!IR.isInstPtr());
+  Expected<std::pair<BinaryBasicBlock *, unsigned>> BBIdxOrErr = IR.getBBIdx();
+  if (Error E = BBIdxOrErr.takeError()) {
+    consumeError(std::move(E));
+    errs() << "BOLT-ERROR: invalid Access reference\n";
+    exit(1);
+  }
+  std::pair<BinaryBasicBlock *, unsigned> BBIdx = BBIdxOrErr.get();
   OS << BBIdx.first->getName() << ":" << BBIdx.second;
-  if (Inst.getOpcode() == TargetOpcode::PHI)
+  if (Inst->getOpcode() == TargetOpcode::PHI)
     OS << '\'';
   else
     OS << '.';
@@ -90,6 +98,8 @@ raw_ostream &operator<<(raw_ostream &OS, const Access Acc) {
 void DataflowGraph::addInstrAccesses(BinaryBasicBlock *BB,
                                      BinaryBasicBlock::iterator &It,
                                      RegToDefMap &LastDef) {
+  if (isExternal(&*It))
+    return;
   const BinaryFunction *BF = BB->getFunction();
   const BinaryContext &BC = BF->getBinaryContext();
   // Iterate over uses then defs
@@ -161,10 +171,22 @@ static void constructIDFPhis(BinaryFunction *BF, BitVector ISARegs) {
     phiPlacement(*BF, IDF, Reg, DefMap);
 }
 
+static BitVector collectUsedRegs(BinaryFunction *BF, unsigned NumRegs) {
+  BitVector Regs(NumRegs);
+  for (const BinaryBasicBlock &BB : *BF)
+    for (const MCInst &Inst : BB)
+      for (const MCOperand &Op : Inst)
+        if (Op.isReg())
+          Regs.set(Op.getReg());
+  return Regs;
+}
+
 DataflowGraph::DataflowGraph(BinaryFunction *BF) {
   const BinaryContext &BC = BF->getBinaryContext();
   // ISA registers (e.g. RAX, ZMM31, ...)
   BitVector ISARegs = BC.MIB->getISARegs();
+  // Defined and used registers in this BF
+  ISARegs &= collectUsedRegs(BF, ISARegs.size());
 
   constructIDFPhis(BF, ISARegs);
 
@@ -178,17 +200,21 @@ DataflowGraph::DataflowGraph(BinaryFunction *BF) {
   MCInst External;
   External.clear();
   External.setOpcode(TargetOpcode::IMPLICIT_DEF);
+  std::unordered_map<MCPhysReg, unsigned> RegToExtOperand;
   External.addOperand(MCOperand::createReg(MCRegister::NoRegister));
-  for (MCPhysReg Reg : ISARegs.set_bits())
+  unsigned Counter = 1;
+  for (MCPhysReg Reg : ISARegs.set_bits()) {
     External.addOperand(MCOperand::createReg(Reg));
+    RegToExtOperand.insert({Reg, Counter++});
+  }
   BinaryBasicBlock *BB = &*BF->begin();
   BinaryBasicBlock::iterator ExternalIt =
       BB->insertInstruction(BB->begin(), External);
-  Access ExtAcc(BB, ExternalIt, 0, OpSpaceT::EXPLICIT);
+  Access ExtDefAcc(BB, ExternalIt, 0, OpSpaceT::EXPLICIT);
 
   // Initialize last def with External, meaning it's a live-in.
   for (MCPhysReg Reg : ISARegs.set_bits())
-    LastDef.insert({Reg, ExtAcc});
+    LastDef.insert({Reg, ExtDefAcc});
 
   for (BinaryBasicBlock &BB : *BF)
     for (MCInst &Inst : BB)
@@ -216,8 +242,9 @@ DataflowGraph::DataflowGraph(BinaryFunction *BF) {
   for (MCPhysReg Reg : LiveOut.set_bits()) {
     auto DefIt = LastDef.find(Reg);
     assert(DefIt != LastDef.end());
-    if (isExternal(DefIt->second.getInst()))
-      add(BC, ExtAcc, DefIt->second);
+    Access ExtUseAcc(&*BF->begin(), ExternalIt, RegToExtOperand[Reg],
+                     OpSpaceT::EXPLICIT);
+    add(BC, ExtUseAcc, DefIt->second);
   }
 }
 
@@ -242,9 +269,9 @@ raw_ostream &dumpAccess(raw_ostream &OS, ViewAccess Acc,
   return OS;
 }
 
-raw_ostream &dumpInstDF(raw_ostream &OS, const MCInst &Inst,
-                                       const BinaryContext &BC) {
-  OS << BC.InstPrinter->getMnemonic(&Inst).first;
+raw_ostream &dumpInstDF(raw_ostream &OS, const MCInst *Inst,
+                        const BinaryContext &BC) {
+  OS << BC.InstPrinter->getMnemonic(Inst).first;
   // uses
   {
     ListSeparator LS;
@@ -269,11 +296,11 @@ raw_ostream &dumpInstDF(raw_ostream &OS, const MCInst &Inst,
 
 static unsigned calculateAccessIndex(const BinaryContext &BC,
                                      ViewAccess &Acc) {
-  const MCInst &Inst = Acc.getInst();
-  unsigned Opcode = Inst.getOpcode();
+  const MCInst *Inst = *Acc;
+  unsigned Opcode = Inst->getOpcode();
   const MCInstrDesc &II = BC.MII->get(Opcode);
   unsigned NumImplicitDefs = II.getNumImplicitDefs();
-  unsigned NumOperands = MCPlus::getNumPrimeOperands(Inst);
+  unsigned NumOperands = MCPlus::getNumPrimeOperands(*Inst);
   switch (Acc.Space) {
   case OpSpaceT::IMPLICIT_DEF:
     return Acc.OpIdx;
@@ -303,25 +330,29 @@ AccessIteratorBase<T>::getOpSpace(const BinaryContext &BC, const MCInst &Inst,
   return {AccIdx, OpSpaceT::IMPLICIT_USE};
 }
 
-Optional<Access> InstDF::getDef(const BinaryContext &BC,
-                                ViewAccess &Acc) const {
-  AccNode *AN = InstAccesses[calculateAccessIndex(BC, Acc)];
-  if (!AN)
-    return NoneType();
-  assert(AN->Next == nullptr);
-  return AN->Acc;
+Optional<Access> InstDF::getDef(const BinaryContext &BC, ViewAccess Use) const {
+  if (AccNode *AN = InstAccesses[calculateAccessIndex(BC, Use)]) {
+    assert(AN->Next == nullptr);
+    return AN->Acc;
+  }
+  return NoneType();
 }
-AccNode *InstDF::getUses(const BinaryContext &BC, ViewAccess Acc) const {
-  return InstAccesses[calculateAccessIndex(BC, Acc)];
+AccNode *InstDF::getUses(const BinaryContext &BC, ViewAccess Def) const {
+  return InstAccesses[calculateAccessIndex(BC, Def)];
 }
-void InstDF::setDef(const BinaryContext &BC, ViewAccess Acc, Access Def) {
-  assert(!InstAccesses[calculateAccessIndex(BC, Acc)]);
-  InstAccesses[calculateAccessIndex(BC, Acc)] = new AccNode(Def);
+void InstDF::setDef(const BinaryContext &BC, ViewAccess Use, Access Def) {
+  if (AccNode *Def = InstAccesses[calculateAccessIndex(BC, Use)]) {
+    dumpAccess(errs(), Def->Acc, BC);
+    assert(0 && "Def is already initialized!");
+  }
+  assert(!Def.IR.isInstPtr());
+  InstAccesses[calculateAccessIndex(BC, Use)] = new AccNode(Def);
 }
-void InstDF::addUse(const BinaryContext &BC, ViewAccess Acc, Access Use) {
+void InstDF::addUse(const BinaryContext &BC, ViewAccess Def, Access Use) {
+  assert(!Use.IR.isInstPtr());
   AccNode *UseAccNode = new AccNode(Use);
-  UseAccNode->Next = InstAccesses[calculateAccessIndex(BC, Acc)];
-  InstAccesses[calculateAccessIndex(BC, Acc)] = UseAccNode;
+  UseAccNode->Next = InstAccesses[calculateAccessIndex(BC, Def)];
+  InstAccesses[calculateAccessIndex(BC, Def)] = UseAccNode;
 }
 bool InstDF::removeDef(const BinaryContext &BC, ViewAccess Acc) {
   unsigned AccIdx = calculateAccessIndex(BC, Acc);
@@ -354,16 +385,27 @@ raw_ostream &operator<<(raw_ostream &OS, const InstDF &DF) {
     if (!AN)
       continue;
     Access Acc = AN->Acc;
-    BinaryBasicBlock *BB = getBBIdx(Acc).first;
+    BinaryBasicBlock *BB = nullptr;
+    if (auto BBIdx = Acc.IR.getBBIdx())
+      BB = BBIdx->first;
+    if (!BB)
+      continue;
     const BinaryContext &BC = BB->getFunction()->getBinaryContext();
     if (Acc.isUse(BC))
-      dumpInstDF(OS, getDef(BC, Acc)->getInst(), BC);
+      dumpInstDF(OS, **getDef(BC, Acc), BC);
     else
-      dumpInstDF(OS, getUses(BC, Acc)->Acc.getInst(), BC);
+      dumpInstDF(OS, *(getUses(BC, Acc)->Acc), BC);
     return OS;
   }
   return OS;
 }
+
+/*
+template <typename T>
+T AccessIteratorBase<T>::operator*() const {
+  return T(IR, getOpSpace(BC, **IR, AccIdx));
+}
+*/
 
 static unsigned getTotalDefs(const BinaryContext &BC, const MCInst &Inst) {
   unsigned Opcode = Inst.getOpcode();
@@ -381,52 +423,46 @@ unsigned getTotalOperands(const BinaryContext &BC, const MCInst &Inst) {
   return NumImplicitDefs + NumOperands + NumImplicitUses;
 }
 
-template <> MCInst &getInst<INST_PTR>(InstU InstRef) { return *InstRef.Inst; }
-
-template <> MCInst &getInst<INST_IDX>(InstU InstRef) {
-  return InstRef.BBIdx.getInst();
-}
-
 AccessIterator access_begin(const BinaryContext &BC, BinaryBasicBlock *BB,
                             BinaryBasicBlock::iterator &It) {
   return AccessIterator(BC, BB, It, 0);
 }
-ViewAccessIterator access_begin(const BinaryContext &BC, const MCInst &Inst) {
+ViewAccessIterator access_begin(const BinaryContext &BC, const MCInst *Inst) {
   return ViewAccessIterator(BC, Inst, 0);
 }
 AccessIterator access_end(const BinaryContext &BC, BinaryBasicBlock *BB,
                           BinaryBasicBlock::iterator &It) {
   return AccessIterator(BC, BB, It, getTotalOperands(BC, *It));
 }
-ViewAccessIterator access_end(const BinaryContext &BC, const MCInst &Inst) {
-  return ViewAccessIterator(BC, Inst, getTotalOperands(BC, Inst));
+ViewAccessIterator access_end(const BinaryContext &BC, const MCInst *Inst) {
+  return ViewAccessIterator(BC, Inst, getTotalOperands(BC, *Inst));
 }
 AccessIterator def_begin(const BinaryContext &BC, BinaryBasicBlock *BB,
                          BinaryBasicBlock::iterator &It) {
   return access_begin(BC, BB, It);
 }
-ViewAccessIterator def_begin(const BinaryContext &BC, const MCInst &Inst) {
+ViewAccessIterator def_begin(const BinaryContext &BC, const MCInst *Inst) {
   return access_begin(BC, Inst);
 }
 AccessIterator def_end(const BinaryContext &BC, BinaryBasicBlock *BB,
                        BinaryBasicBlock::iterator &It) {
   return AccessIterator(BC, BB, It, getTotalDefs(BC, *It));
 }
-ViewAccessIterator def_end(const BinaryContext &BC, const MCInst &Inst) {
-  return ViewAccessIterator(BC, Inst, getTotalDefs(BC, Inst));
+ViewAccessIterator def_end(const BinaryContext &BC, const MCInst *Inst) {
+  return ViewAccessIterator(BC, Inst, getTotalDefs(BC, *Inst));
 }
 AccessIterator use_begin(const BinaryContext &BC, BinaryBasicBlock *BB,
                          BinaryBasicBlock::iterator &It) {
   return def_end(BC, BB, It);
 }
-ViewAccessIterator use_begin(const BinaryContext &BC, const MCInst &Inst) {
+ViewAccessIterator use_begin(const BinaryContext &BC, const MCInst *Inst) {
   return def_end(BC, Inst);
 }
 AccessIterator use_end(const BinaryContext &BC, BinaryBasicBlock *BB,
                        BinaryBasicBlock::iterator &It) {
   return access_end(BC, BB, It);
 }
-ViewAccessIterator use_end(const BinaryContext &BC, const MCInst &Inst) {
+ViewAccessIterator use_end(const BinaryContext &BC, const MCInst *Inst) {
   return access_end(BC, Inst);
 }
 iterator_range<AccessIterator> accesses(const BinaryContext &BC,
@@ -448,26 +484,26 @@ iterator_range<AccessIterator> uses(const BinaryContext &BC,
                                         use_end(BC, BB, It));
 }
 iterator_range<ViewAccessIterator> accesses(const BinaryContext &BC,
-                                             const MCInst &Inst) {
+                                             const MCInst *Inst) {
   return iterator_range<ViewAccessIterator>(access_begin(BC, Inst),
-                                             access_end(BC, Inst));
+                                            access_end(BC, Inst));
 }
 iterator_range<ViewAccessIterator> defs(const BinaryContext &BC,
-                                         const MCInst &Inst) {
+                                        const MCInst *Inst) {
   return iterator_range<ViewAccessIterator>(def_begin(BC, Inst),
-                                             def_end(BC, Inst));
+                                            def_end(BC, Inst));
 }
 iterator_range<ViewAccessIterator> uses(const BinaryContext &BC,
-                                         const MCInst &Inst) {
+                                         const MCInst *Inst) {
   return iterator_range<ViewAccessIterator>(use_begin(BC, Inst),
-                                             use_end(BC, Inst));
+                                            use_end(BC, Inst));
 }
 
 InstDF &getDF(const BinaryContext &BC, Access Acc) {
-  return BC.MIB->getAnnotationAs<InstDF>(Acc.getInst(), "DF");
+  return BC.MIB->getAnnotationAs<InstDF>(**Acc, "DF");
 }
 const InstDF &getDF(const BinaryContext &BC, ViewAccess Acc) {
-  return BC.MIB->getAnnotationAs<const InstDF>(Acc.getInst(), "DF");
+  return BC.MIB->getAnnotationAs<const InstDF>(**Acc, "DF");
 }
 
 Optional<Access> getDef(const BinaryContext &BC, ViewAccess Use) {

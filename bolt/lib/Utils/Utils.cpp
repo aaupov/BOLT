@@ -48,6 +48,10 @@ void check_error(Error E, Twine Message) {
   });
 }
 
+Error make_string_error(const Twine &Message) {
+  return make_error<StringError>(Message, inconvertibleErrorCode());
+}
+
 std::string getEscapedName(const StringRef &Name) {
   std::string Output = Name.str();
   for (size_t I = 0; I < Output.size(); ++I)

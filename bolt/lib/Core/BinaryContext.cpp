@@ -13,6 +13,7 @@
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryEmitter.h"
 #include "bolt/Core/BinaryFunction.h"
+#include "bolt/Core/DataflowGraph.h"
 #include "bolt/Utils/CommandLineOpts.h"
 #include "bolt/Utils/NameResolver.h"
 #include "bolt/Utils/Utils.h"
@@ -1852,7 +1853,7 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
   }
   if (Instruction.getOpcode() == TargetOpcode::IMPLICIT_DEF) {
     OS << "\t!IMPLICIT_DEF\t";
-    MIB->printAnnotations(Instruction, OS);
+    dumpInstDF(OS, &Instruction, *this);
     OS << Endl;
     return;
   }

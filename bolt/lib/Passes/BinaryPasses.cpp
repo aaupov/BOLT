@@ -334,7 +334,7 @@ bool DataFlowPeepholes::deadCodeElimination(BinaryBasicBlock *BB,
     return false;
 
   // the instruction can't be removed if there are any uses
-  for (ViewAccess Def : defs(BC, Inst))
+  for (ViewAccess Def : defs(BC, &Inst))
     if (getUses(BC, Def))
       return false;
   outs() << "Dead instruction: ";

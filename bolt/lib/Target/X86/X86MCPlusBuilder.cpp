@@ -836,7 +836,14 @@ public:
       Regs ^= getAliases(Reg, /* OnlySmaller = */ true);
       Regs.set(Reg); // turn on the outermost reg
     }
-    // FIXME: how to handle mask pairs?
+    // Unset aliases of mask pairs
+    for (MCPhysReg Reg = X86::K0_K1; Reg <= X86::K6_K7; Reg++)
+      Regs.reset(Reg);
+    // Unset control and debug registers
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::CONTROL_REGRegClassID])
+      Regs.reset(Reg);
+    for (MCPhysReg Reg : X86MCRegisterClasses[X86::DEBUG_REGRegClassID])
+      Regs.reset(Reg);
     return Regs;
   }
 

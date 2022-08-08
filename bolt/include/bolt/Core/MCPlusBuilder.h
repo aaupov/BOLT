@@ -1220,7 +1220,7 @@ public:
     llvm_unreachable("not implemented");
   }
 
-  /// Change \p Regs with a bitmask with all ISA outermost registers.
+  /// Change \p Regs with a bitmask with all user-mode ISA outermost registers.
   virtual BitVector getISARegs() const {
     llvm_unreachable("not implemented");
   }

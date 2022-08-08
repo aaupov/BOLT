@@ -35,6 +35,8 @@ void check_error(std::error_code EC, StringRef Message);
 
 void check_error(Error E, Twine Message);
 
+Error make_string_error(const Twine &Message);
+
 /// Return the name with escaped whitespace and backslash characters
 std::string getEscapedName(const StringRef &Name);
 
