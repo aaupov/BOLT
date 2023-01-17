@@ -19,6 +19,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/Debug.h"
 #include <cstdint>
+#include <optional>
 #include <queue>
 
 #define DEBUG_TYPE "mcplus"
@@ -268,10 +269,10 @@ bool MCPlusBuilder::clearOffset(MCInst &Inst) {
   return true;
 }
 
-Optional<uint32_t> MCPlusBuilder::getId(const MCInst &Inst) const {
-  Optional<int64_t> Value = getAnnotationOpValue(Inst, MCAnnotation::kId);
+std::optional<uint32_t> MCPlusBuilder::getId(const MCInst &Inst) const {
+  std::optional<int64_t> Value = getAnnotationOpValue(Inst, MCAnnotation::kId);
   if (!Value)
-    return NoneType();
+    return std::nullopt;
   return static_cast<uint32_t>(*Value);
 }
 

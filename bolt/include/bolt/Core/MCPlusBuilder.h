@@ -1119,7 +1119,7 @@ public:
   bool clearOffset(MCInst &Inst);
 
   /// Return id of \p Inst in the function, if available.
-  Optional<uint32_t> getId(const MCInst &Inst) const;
+  std::optional<uint32_t> getId(const MCInst &Inst) const;
 
   /// Set id of \p Inst in the function.
   bool setId(MCInst &Inst, uint32_t Id, AllocatorIdTy AllocatorId = 0);

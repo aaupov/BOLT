@@ -122,11 +122,11 @@ public:
       return OpIdx >= getII(BC, Inst).getNumDefs();
     }
   }
-  Optional<MCPhysReg> getReg(const BinaryContext &BC) const {
+  std::optional<MCPhysReg> getReg(const BinaryContext &BC) const {
     const MCOperand Op = getOp(BC);
     if (Op.isReg() && Op.getReg())
       return Op.getReg();
-    return NoneType();
+    return std::nullopt;
   }
   friend std::pair<BinaryBasicBlock *, unsigned>
   getBBIdx(const AccessBase<INST_IDX> &Acc);
@@ -167,7 +167,7 @@ public:
   bool operator==(const InstDF &O) const {
     return InstAccesses == O.InstAccesses;
   }
-  Optional<Access> getDef(const BinaryContext &BC, ViewAccess Use) const;
+  std::optional<Access> getDef(const BinaryContext &BC, ViewAccess Use) const;
   AccNode *getUses(const BinaryContext &BC, ViewAccess Def) const;
   void setDef(const BinaryContext &BC, ViewAccess Use, Access Def);
   void addUse(const BinaryContext &BC, ViewAccess Def, Access Use);
@@ -245,7 +245,7 @@ iterator_range<ViewAccessIterator> defs(const BinaryContext &BC,
 iterator_range<ViewAccessIterator> uses(const BinaryContext &BC,
                                         const MCInst *Inst);
 
-Optional<Access> getDef(const BinaryContext &BC, ViewAccess Use);
+std::optional<Access> getDef(const BinaryContext &BC, ViewAccess Use);
 AccNode *getUses(const BinaryContext &BC, ViewAccess Def);
 void add(const BinaryContext &BC, Access Use, Access Def);
 void remove(const BinaryContext &BC, Access Use, Access Def);

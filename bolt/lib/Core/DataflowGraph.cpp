@@ -104,7 +104,7 @@ void DataflowGraph::addInstrAccesses(BinaryBasicBlock *BB,
   const BinaryContext &BC = BF->getBinaryContext();
   // Iterate over uses then defs
   for (Access Use : uses(BC, BB, It)) {
-    Optional<MCPhysReg> UseReg = Use.getReg(BC);
+    std::optional<MCPhysReg> UseReg = Use.getReg(BC);
     if (!UseReg || !*UseReg)
       continue;
     MCPhysReg Reg = BC.MIB->getOutermostISAReg(*UseReg);
@@ -252,13 +252,13 @@ raw_ostream &dumpAccess(raw_ostream &OS, ViewAccess Acc,
                         const BinaryContext &BC) {
   bool IsUse = Acc.isUse(BC);
   char SpaceChar = (Acc.Space == OpSpaceT::EXPLICIT) ? 'e' : 'i';
-  Optional<MCPhysReg> Reg = Acc.getReg(BC);
+  std::optional<MCPhysReg> Reg = Acc.getReg(BC);
   if (!Reg)
     return OS;
   BC.InstPrinter->printRegName(OS, *Reg);
   OS << '[';
   if (IsUse) {
-    if (Optional<Access> Def = getDef(BC, Acc))
+    if (std::optional<Access> Def = getDef(BC, Acc))
       OS << *Def;
   } else {
     ListSeparator LS(",");
@@ -330,12 +330,12 @@ AccessIteratorBase<T>::getOpSpace(const BinaryContext &BC, const MCInst &Inst,
   return {AccIdx, OpSpaceT::IMPLICIT_USE};
 }
 
-Optional<Access> InstDF::getDef(const BinaryContext &BC, ViewAccess Use) const {
+std::optional<Access> InstDF::getDef(const BinaryContext &BC, ViewAccess Use) const {
   if (AccNode *AN = InstAccesses[calculateAccessIndex(BC, Use)]) {
     assert(AN->Next == nullptr);
     return AN->Acc;
   }
-  return NoneType();
+  return std::nullopt;
 }
 AccNode *InstDF::getUses(const BinaryContext &BC, ViewAccess Def) const {
   return InstAccesses[calculateAccessIndex(BC, Def)];
@@ -506,7 +506,7 @@ const InstDF &getDF(const BinaryContext &BC, ViewAccess Acc) {
   return BC.MIB->getAnnotationAs<const InstDF>(**Acc, "DF");
 }
 
-Optional<Access> getDef(const BinaryContext &BC, ViewAccess Use) {
+std::optional<Access> getDef(const BinaryContext &BC, ViewAccess Use) {
   return getDF(BC, Use).getDef(BC, Use);
 }
 AccNode *getUses(const BinaryContext &BC, ViewAccess Def) {

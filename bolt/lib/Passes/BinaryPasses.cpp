@@ -341,7 +341,7 @@ bool DataFlowPeepholes::deadCodeElimination(BinaryBasicBlock *BB,
   BC.printInstruction(outs(), Inst);
   // Remove its uses.
   for (Access Use : uses(BC, BB, It))
-    if (Optional<Access> Def = getDef(BC, Use))
+    if (std::optional<Access> Def = getDef(BC, Use))
       remove(BC, Use, *Def);
   // The instruction is dead.
   BC.MIB->addAnnotation(Inst, "Dead", true);
