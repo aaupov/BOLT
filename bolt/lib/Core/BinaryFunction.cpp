@@ -4075,6 +4075,8 @@ BinaryFunction::~BinaryFunction() {
     delete BB;
 }
 
+void BinaryFunction::constructDFG() { DFG.reset(new DataflowGraph(this)); }
+
 void BinaryFunction::constructDomTree() {
   BDT.reset(new BinaryDominatorTree);
   BDT->recalculate(*this);

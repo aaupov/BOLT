@@ -15,6 +15,7 @@
 
 #include "bolt/Core/BinaryContext.h"
 #include "bolt/Core/BinaryFunction.h"
+#include "bolt/Core/DataflowGraph.h"
 #include "bolt/Core/DynoStats.h"
 #include "llvm/Support/CommandLine.h"
 #include <atomic>
@@ -101,6 +102,17 @@ public:
   const char *getName() const override { return "normalize CFG"; }
 
   Error runOnFunctions(BinaryContext &) override;
+};
+
+class DataFlowPass : public BinaryFunctionPass {
+  void runOnFunction(BinaryFunction &BF);
+public:
+  DataFlowPass(const cl::opt<bool> &PrintPass)
+      : BinaryFunctionPass(PrintPass) {}
+
+  const char *getName() const override { return "dataflow-construction"; }
+
+  void runOnFunctions(BinaryContext &) override;
 };
 
 /// Detect and eliminate unreachable basic blocks. We could have those

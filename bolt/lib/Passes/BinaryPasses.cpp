@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "bolt/Passes/BinaryPasses.h"
+#include "bolt/Core/DataflowGraph.h"
 #include "bolt/Core/FunctionLayout.h"
 #include "bolt/Core/ParallelUtilities.h"
 #include "bolt/Passes/ReorderAlgorithm.h"
@@ -321,6 +322,19 @@ Error NormalizeCFG::runOnFunctions(BinaryContext &BC) {
               << " duplicate CFG edge"
               << (NumDuplicateEdgesMerged == 1 ? "" : "s") << '\n';
   return Error::success();
+}
+
+void DataFlowPass::runOnFunction(BinaryFunction &BF) {
+  if (!BF.hasDFG())
+    BF.constructDFG();
+}
+
+void DataFlowPass::runOnFunctions(BinaryContext &BC) {
+  ParallelUtilities::runOnEachFunction(
+      BC, ParallelUtilities::SchedulingPolicy::SP_BB_LINEAR,
+      [&](BinaryFunction &BF) { runOnFunction(BF); },
+      [&](const BinaryFunction &BF) { return !shouldOptimize(BF); },
+      "DFConstruction");
 }
 
 void EliminateUnreachableBlocks::runOnFunction(BinaryFunction &Function) {

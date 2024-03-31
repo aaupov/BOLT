@@ -1207,6 +1207,15 @@ public:
   /// overwritten at runtime.
   void setDynamicBranch(MCInst &Inst, uint32_t ID) const;
 
+  /// Return id of \p Inst in the function, if available.
+  Optional<uint32_t> getId(const MCInst &Inst) const;
+
+  /// Set id of \p Inst in the function.
+  bool setId(MCInst &Inst, uint32_t Id, AllocatorIdTy AllocatorId = 0);
+
+  /// Remove id annotation.
+  bool clearId(MCInst &Inst);
+
   /// Return MCSymbol that represents a target of this instruction at a given
   /// operand number \p OpNum. If there's no symbol associated with
   /// the operand - return nullptr.
@@ -1295,6 +1304,16 @@ public:
 
   /// Similar to getDefaultDefIn
   virtual void getDefaultLiveOut(BitVector &Regs) const {
+    llvm_unreachable("not implemented");
+  }
+
+  /// Returns outermost ISA reg for a given \p Reg.
+  virtual MCPhysReg getOutermostISAReg(MCPhysReg Reg) const {
+    llvm_unreachable("not implemented");
+  }
+
+  /// Change \p Regs with a bitmask with all ISA outermost registers.
+  virtual BitVector getISARegs() const {
     llvm_unreachable("not implemented");
   }
 
@@ -1539,6 +1558,10 @@ public:
     llvm_unreachable("not implemented");
     return 0;
   }
+
+  /// Create PHI pseudo instruction for a given \p Reg with \p NumPreds source
+  /// operands.
+  bool createPhi(MCInst &Inst, MCPhysReg Reg, size_t NumPreds) const;
 
   /// Create a no-op instruction.
   virtual void createNoop(MCInst &Inst) const {

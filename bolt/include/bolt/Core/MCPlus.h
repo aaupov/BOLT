@@ -74,6 +74,7 @@ public:
     kLabel,               /// MCSymbol pointing to this instruction.
     kSize,                /// Size of the instruction.
     kDynamicBranch,       /// Jit instruction patched at runtime.
+    kId,                  /// Sequential id of instruction in the function.
     kGeneric              /// First generic annotation.
   };
 

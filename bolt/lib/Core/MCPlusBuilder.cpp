@@ -288,6 +288,26 @@ MCSymbol *MCPlusBuilder::getInstLabel(const MCInst &Inst) const {
   return nullptr;
 }
 
+Optional<uint32_t> MCPlusBuilder::getId(const MCInst &Inst) const {
+  Optional<int64_t> Value = getAnnotationOpValue(Inst, MCAnnotation::kId);
+  if (!Value)
+    return NoneType();
+  return static_cast<uint32_t>(*Value);
+}
+
+bool MCPlusBuilder::setId(MCInst &Inst, uint32_t Id,
+                          AllocatorIdTy AllocatorId) {
+  setAnnotationOpValue(Inst, MCAnnotation::kId, Id, AllocatorId);
+  return true;
+}
+
+bool MCPlusBuilder::clearId(MCInst &Inst) {
+  if (!hasAnnotation(Inst, MCAnnotation::kId))
+    return false;
+  removeAnnotation(Inst, MCAnnotation::kId);
+  return true;
+}
+
 MCSymbol *MCPlusBuilder::getOrCreateInstLabel(MCInst &Inst, const Twine &Name,
                                               MCContext *Ctx) const {
   MCSymbol *Label = getInstLabel(Inst);
@@ -565,5 +585,15 @@ bool MCPlusBuilder::setOperandToSymbolRef(MCInst &Inst, int OpNum,
         *Ctx, RelType));
   }
   Inst.getOperand(OpNum) = Operand;
+  return true;
+}
+
+bool MCPlusBuilder::createPhi(MCInst &Phi, MCPhysReg Reg, size_t NumPreds) const {
+  Phi.clear();
+  Phi.setOpcode(TargetOpcode::PHI);
+  // One def operand and as many uses as incoming edges
+  do
+    Phi.addOperand(MCOperand::createReg(Reg));
+  while (NumPreds--);
   return true;
 }

@@ -30,6 +30,7 @@
 #include "bolt/Core/BinaryDomTree.h"
 #include "bolt/Core/BinaryLoop.h"
 #include "bolt/Core/BinarySection.h"
+#include "bolt/Core/DataflowGraph.h"
 #include "bolt/Core/DebugData.h"
 #include "bolt/Core/FunctionLayout.h"
 #include "bolt/Core/JumpTable.h"
@@ -267,6 +268,7 @@ private:
   BinaryContext &BC;
 
   std::unique_ptr<BinaryLoopInfo> BLI;
+  std::unique_ptr<DataflowGraph> DFG;
   std::unique_ptr<BinaryDominatorTree> BDT;
 
   /// All labels in the function that are referenced via relocations from
@@ -847,6 +849,15 @@ public:
 
   /// Constructs DomTree for this function.
   void constructDomTree();
+
+  /// Returns if DFG construction has been run for this function.
+  bool hasDFG() const { return DFG != nullptr; }
+
+  DataflowGraph &getDFG() { return *DFG.get(); }
+  const DataflowGraph &getDFG() const { return *DFG.get(); }
+
+  /// Construct DFG for the function.
+  void constructDFG();
 
   /// Returns if loop detection has been run for this function.
   bool hasLoopInfo() const { return BLI != nullptr; }

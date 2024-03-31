@@ -90,6 +90,11 @@ PrintAfterLowering("print-after-lowering",
   cl::desc("print function after instruction lowering"),
   cl::Hidden, cl::cat(BoltOptCategory));
 
+static cl::opt<bool>
+PrintDataflowPass("print-df-pass",
+  cl::desc("print functions after dataflow graph construction"),
+  cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
+
 cl::opt<bool>
 PrintFinalized("print-finalized",
   cl::desc("print function after CFG is finalized"),
@@ -251,6 +256,11 @@ static cl::opt<bool> ThreeWayBranchFlag("three-way-branch",
                                         cl::desc("reorder three way branches"),
                                         cl::ReallyHidden,
                                         cl::cat(BoltOptCategory));
+
+static cl::opt<bool>
+DataflowPassFlag("dfg",
+  cl::desc("perform dataflow graph construction"),
+  cl::ZeroOrMore, cl::ReallyHidden, cl::cat(BoltOptCategory));
 
 static cl::opt<bool> CMOVConversionFlag("cmov-conversion",
                                         cl::desc("fold jcc+mov into cmov"),
@@ -423,6 +433,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
   Manager.registerPass(std::make_unique<LoopInversionPass>());
 
   Manager.registerPass(std::make_unique<TailDuplication>());
+
+  Manager.registerPass(std::make_unique<DataFlowPass>(PrintDataflowPass),
+                       opts::DataflowPassFlag);
 
   Manager.registerPass(std::make_unique<CMOVConversion>(),
                        opts::CMOVConversionFlag);
