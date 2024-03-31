@@ -95,6 +95,11 @@ PrintDataflowPass("print-df-pass",
   cl::desc("print functions after dataflow graph construction"),
   cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
 
+static cl::opt<bool>
+PrintDataflowPeepholes("print-df-peepholes",
+  cl::desc("print functions after dataflow peephole optimizations"),
+  cl::ZeroOrMore, cl::Hidden, cl::cat(BoltOptCategory));
+
 cl::opt<bool>
 PrintFinalized("print-finalized",
   cl::desc("print function after CFG is finalized"),
@@ -260,6 +265,11 @@ static cl::opt<bool> ThreeWayBranchFlag("three-way-branch",
 static cl::opt<bool>
 DataflowPassFlag("dfg",
   cl::desc("perform dataflow graph construction"),
+  cl::ZeroOrMore, cl::ReallyHidden, cl::cat(BoltOptCategory));
+
+static cl::opt<bool>
+DataflowPeepholesFlag("df-peepholes",
+  cl::desc("perform dataflow peephole optimizations"),
   cl::ZeroOrMore, cl::ReallyHidden, cl::cat(BoltOptCategory));
 
 static cl::opt<bool> CMOVConversionFlag("cmov-conversion",
@@ -436,6 +446,9 @@ Error BinaryFunctionPassManager::runAllPasses(BinaryContext &BC) {
 
   Manager.registerPass(std::make_unique<DataFlowPass>(PrintDataflowPass),
                        opts::DataflowPassFlag);
+
+  Manager.registerPass(std::make_unique<DataFlowPeepholes>(PrintDataflowPeepholes),
+                       opts::DataflowPeepholesFlag);
 
   Manager.registerPass(std::make_unique<CMOVConversion>(),
                        opts::CMOVConversionFlag);

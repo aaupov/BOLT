@@ -460,6 +460,11 @@ public:
     return false;
   }
 
+  /// Return true if the instruction has unmodeled side effects.
+  bool hasUnmodeledSideEffects(const MCInst &Inst) const {
+    return Info->get(Inst.getOpcode()).hasUnmodeledSideEffects();
+  }
+
   /// Creates x86 pause instruction.
   virtual void createPause(MCInst &Inst) const {
     llvm_unreachable("not implemented");
@@ -653,6 +658,15 @@ public:
   virtual StringRef getTrapFillValue() const {
     llvm_unreachable("not implemented");
     return StringRef();
+  }
+
+  /// Return true if \p Inst has side-effects and can't be removed even if
+  /// has no dataflow-dependent instructions.
+  virtual bool isAlive(const MCInst &Inst) const {
+    if (isBranch(Inst) || isStore(Inst) || isCall(Inst) || isReturn(Inst) ||
+        hasUnmodeledSideEffects(Inst))
+      return true;
+    return false;
   }
 
   /// Interface and basic functionality of a MCInstMatcher. The idea is to make

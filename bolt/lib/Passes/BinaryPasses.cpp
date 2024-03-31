@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "bolt/Passes/BinaryPasses.h"
+#include "bolt/Core/BinaryBasicBlock.h"
 #include "bolt/Core/DataflowGraph.h"
 #include "bolt/Core/FunctionLayout.h"
 #include "bolt/Core/ParallelUtilities.h"
@@ -322,6 +323,88 @@ Error NormalizeCFG::runOnFunctions(BinaryContext &BC) {
               << " duplicate CFG edge"
               << (NumDuplicateEdgesMerged == 1 ? "" : "s") << '\n';
   return Error::success();
+}
+
+bool DataFlowPeepholes::constCopyPropagation(BinaryFunction &BF, MCInst &Inst) {
+  return false;
+}
+
+bool DataFlowPeepholes::deadCodeElimination(BinaryBasicBlock *BB,
+                                            BinaryBasicBlock::iterator It) {
+  MCInst &Inst = *It;
+  BinaryFunction *BF = BB->getFunction();
+  const BinaryContext &BC = BF->getBinaryContext();
+  if (BC.MIB->isAlive(Inst) || BC.MIB->hasAnnotation(Inst, "Dead"))
+    return false;
+
+  // the instruction can't be removed if there are any uses
+  for (ViewAccess Def : defs(BC, Inst))
+    if (getUses(BC, Def))
+      return false;
+  outs() << "Dead instruction: ";
+  BC.printInstruction(outs(), Inst);
+  // Remove its uses.
+  for (Access Use : uses(BC, BB, It))
+    if (Optional<Access> Def = getDef(BC, Use))
+      remove(BC, Use, *Def);
+  // The instruction is dead.
+  BC.MIB->addAnnotation(Inst, "Dead", true);
+  return true;
+}
+
+void DataFlowPeepholes::runOnFunction(BinaryFunction &BF) {
+  BinaryContext &BC = BF.getBinaryContext();
+  uint64_t NumRemoved = 0;
+  bool Changed = true;
+  if (!BF.hasDFG())
+    BF.constructDFG();
+  while (Changed) {
+    Changed = false;
+    for (BinaryBasicBlock *BB : post_order(&BF)) {
+      bool BBChanged = false;
+      if (BB->empty())
+        continue;
+      outs() << "Before:\n";
+      BB->dump();
+      for (auto RII = BB->rbegin(); RII != BB->rend(); ++RII) {
+        MCInst &Inst = *RII;
+        BBChanged |= constCopyPropagation(BF, Inst);
+        BBChanged |= deadCodeElimination(BB, std::prev(RII.base()));
+      }
+      if (BBChanged) {
+        outs() << "\n\n\n!!!!!CHANGED!!!!!!\n\n\n";
+        Changed = true;
+        outs() << "After:\n";
+        BB->dump();
+      }
+    }
+  }
+  for (BinaryBasicBlock &BB : BF) {
+    for (auto II = BB.begin(); II != BB.end(); ) {
+      if (BC.MIB->hasAnnotation(*II, "Dead")) {
+        outs() << "Before:\n";
+        BB.dump();
+        II = BB.eraseInstruction(II);
+        ++NumRemoved;
+        outs() << "After:\n";
+        BB.dump();
+      } else {
+        ++II;
+      }
+    }
+  }
+  NumInstrsRemoved += NumRemoved;
+}
+
+void DataFlowPeepholes::runOnFunctions(BinaryContext &BC) {
+  ParallelUtilities::runOnEachFunction(
+      BC, ParallelUtilities::SchedulingPolicy::SP_BB_LINEAR,
+      [&](BinaryFunction &BF) { runOnFunction(BF); },
+      [&](const BinaryFunction &BF) { return !shouldOptimize(BF); },
+      "DFPeepholes");
+  if (NumInstrsRemoved)
+    outs() << "BOLT-INFO: removed " << NumInstrsRemoved << " instruction"
+           << (NumInstrsRemoved == 1 ? "" : "s") << '\n';
 }
 
 void DataFlowPass::runOnFunction(BinaryFunction &BF) {

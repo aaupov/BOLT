@@ -115,6 +115,26 @@ public:
   void runOnFunctions(BinaryContext &) override;
 };
 
+/// The pass performs global (function-scope) Data-Flow optimizations:
+///   * Dead Code Elimination
+///   * Constant/Copy Propagation
+class DataFlowPeepholes : public BinaryFunctionPass {
+  std::atomic<uint64_t> NumInstrsRemoved{0};
+
+  void runOnFunction(BinaryFunction &BF);
+  bool constCopyPropagation(BinaryFunction &BF, MCInst &Inst);
+  bool deadCodeElimination(BinaryBasicBlock *BB,
+                           BinaryBasicBlock::iterator It);
+
+public:
+  DataFlowPeepholes(const cl::opt<bool> &PrintPass)
+    : BinaryFunctionPass(PrintPass) {}
+
+  const char *getName() const override { return "dataflow peepholes"; }
+
+  void runOnFunctions(BinaryContext &) override;
+};
+
 /// Detect and eliminate unreachable basic blocks. We could have those
 /// filled with nops and they are used for alignment.
 class EliminateUnreachableBlocks : public BinaryFunctionPass {
